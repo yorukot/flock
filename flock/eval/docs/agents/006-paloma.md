@@ -59,7 +59,7 @@ Read from allenai/olmes at `5a51f502d463b8cdc4a2dcad7d7096c41ff1197e`, the commi
 | `wikitext_103` | 1 | 265,552 | CC BY-SA | yes |
 | `ptb` | 1 | 95,868 | LR | yes |
 | `falcon-refinedweb` | 1 | 1,000,000 | LR | yes |
-| `dolma-v1_5` | 6 | about 3,000,000 | LR | yes |
+| `dolma-v1_5` | 6 (5 in `test`) | about 3,000,000 | LR | yes |
 | `c4_100_domains` | 99 | about 9,800,000 | LR | yes |
 | `dolma_100_subreddits` | 100 | about 9,680,000 | LR | yes |
 | `dolma_100_programing_languages` | 100 | about 10,000,000 | LR | yes |
@@ -69,7 +69,28 @@ Read from allenai/olmes at `5a51f502d463b8cdc4a2dcad7d7096c41ff1197e`, the commi
 | `twitterAAE_HELM_fixed` | 2 | about 720,000 | research only | no |
 | `manosphere_meta_sep`, `gab`, `4chan_meta_sep` | 9, 1, 1 | about 1,000,000 each | LR | no: fringe sources |
 
-Token counts are the paper's, with the GPT-NeoX-20B tokenizer, half of its val-plus-test column. The first version holds 9 sources and 310 domains, about 36 million tokens per split. The paper leaves the three fringe sources out of its headline perplexity too (sec. 4.1). Document counts, domain names and id uniqueness are recorded from the pinned revision when the tasks land.
+Token counts are the paper's, with the GPT-NeoX-20B tokenizer, half of its val-plus-test column. The paper leaves the three fringe sources out of its headline perplexity too (sec. 4.1).
+
+**The first version's `test` split, counted at the pinned revision** with OLMo 2's tokenizer (`allenai/OLMo-2-0425-1B` at `a1847dff`, no special tokens):
+
+| Source | Domains | Docs | OLMo 2 tokens | Docs over 2048 tokens | Windows of 2048 |
+| --- | --- | --- | --- | --- | --- |
+| `c4_en` | 1 | 2,124 | 964,544 | 50 | 2,200 |
+| `mc4` | 1 | 1,202 | 955,824 | 59 | 1,335 |
+| `wikitext_103` | 1 | 61 | 285,336 | 39 | 170 |
+| `ptb` | 1 | 1 | 98,844 | 1 | 49 |
+| `falcon-refinedweb` | 1 | 1,711 | 966,185 | 72 | 1,821 |
+| `dolma-v1_5` | 5 | 4,481 | 2,372,348 | 171 | 4,916 |
+| `c4_100_domains` | 99 | 14,131 | 9,448,808 | 370 | 14,686 |
+| `dolma_100_subreddits` | 100 | 46,203 | 9,302,083 | 20 | 46,223 |
+| `dolma_100_programing_languages` | 100 | 7,832 | 8,573,391 | 763 | 10,361 |
+| **Total** | **309** | **77,746** | **32,967,363** | **1,545** | **81,761** |
+
+- `dolma-v1_5`'s `books` file is empty in `test` (`test_books.jsonl.gz`), so the source has 5 domains there: `common-crawl`, `pes2o`, `reddit_uniform`, `stack_uniform`, `wiki`.
+- No text is empty, and no id repeats within a source, so a doc's id is its `id` field.
+- Domain names carry Paloma's rank prefix (`00_AskReddit`, `97_archives.lib.state.ma.us`) and use only letters, digits and `_.+#-`.
+- The smallest domain is `c4_100_domains`' `97_archives.lib.state.ma.us`: 1 doc, 464 tokens. It is kept, as Paloma keeps it (four of C4's 100 domains fall short of the 100 thousand target, sec. 2, fn. 4), but it is the noisiest member of its source's mean.
+- `ptb` is one document of 98,844 tokens, scored as 49 windows.
 
 ---
 
@@ -82,7 +103,7 @@ Each Paloma domain is one task, and each source is a `Suite` of its domains with
 - **Names.** A domain's task is `paloma_<source>__<subdomain>`, the key OLMES uses for the domain (`<source>__<subdomain>`), so parity maps one to one. A source with one domain has the task `paloma_<source>`. A source's suite is `paloma:<source>`. `paloma` is an unscored suite over the 9 sources, so one name runs them all.
 - **No score over all sources.** The paper defines none (it gives "ordinary perplexity" over pooled tokens and per-source macro averages), and OLMES's `paloma::paloma` averages micro per-source numbers we don't report. A mean over sources can be added later, under its own name.
 - **Domains are data.** The domain names are frozen in the task module, read once from the pinned revision, and the tasks are generated from that list, as MMLU's 57 subjects are.
-- **Cost:** 310 entries in `tasks` for one `--suite paloma` run. That is the per-domain record the paper asks for. A compact CLI summary is a separate change.
+- **Cost:** 309 entries in `tasks` for one `--suite paloma` run. That is the per-domain record the paper asks for. A compact CLI summary is a separate change.
 
 The alternative, one task per source holding its domains inside, would need a nested per-domain field in `TaskResult` and its own mean over domains, which repeats `Suite`.
 
@@ -98,7 +119,7 @@ class PerplexityTask:
 ```
 
 - `primary_metric` is `"bits_per_byte"` and `reported_metrics` is `("bits_per_byte",)`, both properties, so `Suite` reads a perplexity task as it reads a multiple-choice one.
-- A doc is the row's `id` and `text`. If ids repeat within a domain, the doc id is the row's position (`Dataset.row_index`, 005.D3), and the stage file's build notes say which sources needed it.
+- A doc is the row's `id` and `text`. Ids are unique within every source at the pinned revision (section 2.3), so no row index is needed.
 - Loading filters the source's rows on `subdomain`. 100 domains of one source would then load the same split 100 times, so the build measures that cost and, if it matters, caches a pinned split's rows for the run.
 - The task hash covers the definition and every document's text, as D7 hashes what is scored.
 
@@ -141,10 +162,10 @@ The predictions file has one row per document: `id`, `logprob`, `num_tokens`, `n
 
 ### 006.D7. The first version: 9 sources, the full test split
 
-- **Sources:** the 9 in section 2.3, licensed LR or CC BY-SA, with no fringe source (Harry, 2026-10-24). The others can be added later, each with its licence recorded.
+- **Sources:** the 9 in section 2.3, licensed LR or CC BY-SA, with no fringe source (Harry, 2026-10-24): 309 domains in `test`. The others can be added later, each with its licence recorded.
 - **Split:** `test`, as OLMES's `::paloma` configs (Harry, 2026-10-24).
 - **Whole splits.** Paloma already sized each domain for its variance (G3), so a task scores its whole split. `--limit` caps docs per domain for smoke runs only.
-- **Smoke scale.** `--suite paloma --limit 10` scores 3,100 documents. The full first version is about 36 million tokens; at 2048 tokens per window, a 60M model should take a few H200-minutes and a 1B model about ten. Both are measured on the first smoke run.
+- **Smoke scale.** `--suite paloma --limit 10` scores 3,020 documents. The full first version is 33.0 million OLMo 2 tokens in 81,761 windows. A 60M model should take a few H200-minutes and a 1B model about ten, which the first smoke run measures.
 
 ### 006.D8. How parity is measured
 
