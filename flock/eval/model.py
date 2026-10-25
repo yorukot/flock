@@ -325,7 +325,9 @@ class ScoringModel:
         if prefix is None:
             prefix = self.tokenizer.eos_token_id
         if prefix is None:
-            raise ValueError("scoring needs a BOS or EOS prefix token, and the tokenizer has neither")
+            raise ValueError(
+                "scoring needs a BOS or EOS prefix token, and the tokenizer has neither"
+            )
 
         return prefix
 
