@@ -8,7 +8,6 @@ from flock.eval import run
 from flock.eval.model import ScoringModel
 from flock.eval.run import EvalConfig, evaluate, score_task
 from flock.eval.tasks import SUITES, TASKS, Dataset, PerplexityTask, Suite
-from flock.eval.tasks.paloma import DOMAINS as PALOMA_DOMAINS
 from flock.eval.tasks.paloma import PALOMA, source_suite
 
 from .toy import DOMAIN_ROWS, TASK, TEXT_ROWS, TEXT_TASK
@@ -145,9 +144,18 @@ def test_evaluate_scores_perplexity_tasks_and_their_source(monkeypatch, scorer, 
 
 def test_paloma_is_registered_as_sources_of_domain_tasks():
     assert SUITES["paloma"] == PALOMA
-    assert [suite.name for suite in PALOMA.members] == [
-        f"paloma:{source}" for source in PALOMA_DOMAINS
+    sources = [
+        "c4_en",
+        "mc4",
+        "wikitext_103",
+        "ptb",
+        "falcon-refinedweb",
+        "dolma-v1_5",
+        "c4_100_domains",
+        "dolma_100_subreddits",
+        "dolma_100_programing_languages",
     ]
+    assert [suite.name for suite in PALOMA.members] == [f"paloma:{source}" for source in sources]
     assert [suite.metric for suite in PALOMA.suites] == ["bits_per_byte"] * 9 + [None]
     assert len(PALOMA.tasks) == 309
     wikitext = TASKS["paloma_wikitext_103"]
@@ -187,7 +195,12 @@ def test_a_null_subdomain_counts_as_one_domain(monkeypatch):
 
 def test_the_domains_of_a_source_load_its_split_once(monkeypatch):
     loads = []
-    monkeypatch.setattr(Dataset, "load", lambda self, split=None: loads.append(self) or DOMAIN_ROWS)
+
+    def load(self, split=None):
+        loads.append(self)
+        return DOMAIN_ROWS
+
+    monkeypatch.setattr(Dataset, "load", load)
     assert [len(task.load()) for task in SOURCE.tasks] == [2, 1]
     assert loads == [DOMAINS]
 
@@ -204,3 +217,9 @@ def test_the_cache_reloads_when_another_split_comes_between(monkeypatch):
     assert [doc.id for doc in TEXT_TASK.load()] == ["t-1", "t-2", "t-3"]
     assert [doc.id for doc in EXAM.load()] == ["t-2"]
     assert loads == ["domains", "text", "domains"]
+
+
+def test_an_empty_split_has_no_rows_to_score(monkeypatch):
+    monkeypatch.setattr(Dataset, "load", lambda self, split=None: [])
+    with pytest.raises(ValueError, match="no rows in domain None"):
+        TEXT_TASK.load()

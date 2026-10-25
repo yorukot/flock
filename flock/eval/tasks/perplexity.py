@@ -70,6 +70,8 @@ class PerplexityTask:
         """
         Loads the scored split's docs in the task's domain, keeping the first `limit` (all if `None`).
 
+        The last split loaded is kept in memory, so the domains of one source load it once. A changed dataset needs a new process.
+
         Raises:
             `ValueError`: if `limit` is less than 1, no row is in the domain, or the rows have domains and the task sets none, which would pool the domains into one number.
         """
@@ -77,7 +79,7 @@ class PerplexityTask:
             raise ValueError(f"limit must be at least 1, got {limit}")
 
         docs_by_domain = _docs_by_domain(self.dataset)
-        if self.domain is None and set(docs_by_domain) != {None}:
+        if self.domain is None and docs_by_domain.keys() - {None}:
             raise ValueError(f"{self.name}: the rows have domains; give the task its domain")
         if self.domain not in docs_by_domain:
             raise ValueError(f"{self.name}: no rows in domain {self.domain!r}")
