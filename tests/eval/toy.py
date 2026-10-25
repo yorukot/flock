@@ -3,12 +3,17 @@
 from flock.eval.tasks import Dataset, Fewshot, MultipleChoiceTask, PerplexityTask
 from flock.eval.tasks.arc import arc_doc
 
-# Paloma's row format, as the split "text". Longer than one window of `TEXT_TASK`, with
-# multi-byte UTF-8.
+# Paloma's row format, as the split "text" of a source with one domain and the split "domains"
+# of a source with two. Longer than one window of `TEXT_TASK`, with multi-byte UTF-8.
 TEXT_ROWS = [
-    {"id": "t-1", "subdomain": "news", "text": "The quick brown fox jumps over the lazy dog."},
-    {"id": "t-2", "subdomain": "exam", "text": "臺灣最高的山是哪一座？答案：玉山 🏔"},
-    {"id": "t-3", "subdomain": "news", "text": "繁體中文的評估。 The lazy dog sleeps."},
+    {"id": "t-1", "text": "The quick brown fox jumps over the lazy dog."},
+    {"id": "t-2", "text": "臺灣最高的山是哪一座？答案：玉山 🏔"},
+    {"id": "t-3", "text": "繁體中文的評估。 The lazy dog sleeps."},
+]
+DOMAIN_ROWS = [
+    {**TEXT_ROWS[0], "subdomain": "news"},
+    {**TEXT_ROWS[1], "subdomain": "exam"},
+    {**TEXT_ROWS[2], "subdomain": "news"},
 ]
 
 ROWS = {
@@ -41,6 +46,7 @@ ROWS = {
         },
     ],
     "text": TEXT_ROWS,
+    "domains": DOMAIN_ROWS,
 }
 
 TASK = MultipleChoiceTask(

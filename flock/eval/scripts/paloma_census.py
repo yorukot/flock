@@ -75,9 +75,15 @@ def count_source(tokenizer: PreTrainedTokenizerBase, files: list[str]) -> dict[s
         "domains": len(domain_docs),
         "repeated_ids": len(doc_ids) - len(set(doc_ids)),
         "empty_files": empty_files,
-        "domain_docs": dict(sorted(domain_docs.items())),
-        "domain_tokens": dict(sorted(domain_tokens.items())),
+        "domain_docs": dict(sorted(domain_docs.items(), key=_rank)),
+        "domain_tokens": dict(sorted(domain_tokens.items(), key=_rank)),
     }
+
+
+def _rank(item: tuple[str, int]) -> tuple[int, str]:
+    """Sorts domains by Paloma's rank prefix (`1_www.nytimes.com` before `10_...`), then by name."""
+    prefix = item[0].split("_")[0]
+    return (int(prefix) if prefix.isdigit() else 0, item[0])
 
 
 def main(split: str, out: Path) -> None:

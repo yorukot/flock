@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from flock.eval.metrics import ChoiceScores
 from flock.eval.provenance import Provenance
 from flock.eval.requests import Scores
@@ -147,13 +145,12 @@ def prediction_rows(docs: Sequence[MCDoc], scores: ChoiceScores) -> list[dict[st
 
 
 def perplexity_prediction_rows(
-    docs: Sequence[TextDoc], scores: Scores, num_bytes: torch.Tensor, window: int
+    docs: Sequence[TextDoc], scores: Scores, num_bytes: Sequence[int], window: int
 ) -> list[dict[str, Any]]:
     """Returns one row per doc with its id, summed log-probability, token and UTF-8 byte counts and number of windows, so any domain's `bits_per_byte` can be recomputed."""
     # One host copy per field, not per doc.
     logprob = scores.logprob.tolist()
     num_tokens = scores.num_tokens.tolist()
-    doc_bytes = num_bytes.tolist()
 
     rows = []
     for i, doc in enumerate(docs):
@@ -162,7 +159,7 @@ def perplexity_prediction_rows(
                 "id": doc.id,
                 "logprob": logprob[i],
                 "num_tokens": num_tokens[i],
-                "num_bytes": doc_bytes[i],
+                "num_bytes": num_bytes[i],
                 # Rounded up: the last window holds what is left.
                 "windows": -(-num_tokens[i] // window),
             }

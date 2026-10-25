@@ -80,7 +80,7 @@ def evaluate(config: EvalConfig) -> Results:
 
     Raises:
         `KeyError`: if a task or suite name isn't in its registry.
-        `ValueError`: if two different tasks, or two different suites, to run share a name.
+        `ValueError`: if two different tasks, or two different suites, to run share a name, or a perplexity task's window is above the model's `max_length`.
         `FileExistsError`: if `config.out` exists and isn't an empty directory.
     """
     _check_names("tasks", config.tasks, TASKS)
@@ -92,6 +92,14 @@ def evaluate(config: EvalConfig) -> Results:
     model = ScoringModel.from_pretrained(
         config.model, device=config.device, batch_tokens=config.batch_tokens
     )
+    # Checked before scoring, so a model too short for a perplexity task fails in seconds rather
+    # than after every task before it.
+    for task in tasks:
+        if isinstance(task, PerplexityTask) and task.window > model.max_length:
+            raise ValueError(
+                f"{task.name}: window {task.window} is above {model.name}'s max_length "
+                f"{model.max_length}"
+            )
     task_results = [score_task(model, task, config.limit, config.out) for task in tasks]
 
     provenance = Provenance.collect(
@@ -217,15 +225,15 @@ def _score_perplexity(
     texts = [doc.text for doc in docs]
     # Each whole text's UTF-8 bytes, as OLMES's `num_bytes` (`loglikelihood_rolling_verbose` in
     # `oe_eval/models/eleuther_huggingface.py`).
-    num_bytes = torch.tensor([len(text.encode()) for text in texts], dtype=torch.int64)
+    num_bytes = [len(text.encode()) for text in texts]
 
     start = time.perf_counter()
     scores = model.rolling_loglikelihood(texts, task.window)
     # Summed over all of the task's docs before dividing, as Paloma defines bits per byte
     # (App. B) and OLMES computes it per domain (`PerplexityMetric`), so a doc counts by its
-    # bytes. `.item()` is the task's one host copy, and it waits for the GPU, so `seconds`
-    # times the scoring.
-    metric = bits_per_byte(scores.logprob.sum(), num_bytes.sum()).item()
+    # bytes. `.item()` waits for the GPU, so `seconds` times the scoring.
+    total_bytes = torch.tensor(sum(num_bytes), device=model.device)
+    metric = bits_per_byte(scores.logprob.sum(), total_bytes).item()
     seconds = time.perf_counter() - start
 
     if out is not None:

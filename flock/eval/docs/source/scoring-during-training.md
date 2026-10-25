@@ -18,7 +18,7 @@ print(result.metrics["bpb"])
 
 `name` labels the model in log messages, such as the truncation warning. Use the run and step, so you can tell checkpoints apart. The training loop records the step with the metrics itself.
 
-`score_task` returns a [`~eval.results.TaskResult`] with each metric's mean over docs. It writes nothing unless you pass `out`, and then only `out/predictions/<task>.jsonl`, replacing an existing file. It never writes `results.json`.
+`score_task` returns a [`~eval.results.TaskResult`] with each metric over the task's docs: a mean over docs for a multiple-choice metric, and a ratio of sums for a perplexity task's `bits_per_byte` (see [Metrics](metrics#perplexity)). It writes nothing unless you pass `out`, and then only `out/predictions/<task>.jsonl`, replacing an existing file. It never writes `results.json`.
 
 ## What it does to the model
 

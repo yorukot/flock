@@ -12,8 +12,9 @@ from flock.eval.tasks.paloma import PALOMA, source_suite
 
 from .toy import TASK, TEXT_ROWS, TEXT_TASK
 
-NEWS = dataclasses.replace(TEXT_TASK, name="toy_text__news", domain="news")
-EXAM = dataclasses.replace(TEXT_TASK, name="toy_text__exam", domain="exam")
+DOMAINS = dataclasses.replace(TEXT_TASK.dataset, split="domains")
+NEWS = dataclasses.replace(TEXT_TASK, name="toy_text__news", dataset=DOMAINS, domain="news")
+EXAM = dataclasses.replace(TEXT_TASK, name="toy_text__exam", dataset=DOMAINS, domain="exam")
 SOURCE = Suite("toy_text:source", (NEWS, EXAM))
 
 
@@ -26,9 +27,16 @@ def test_load_keeps_the_domains_rows_in_order():
 
 def test_load_rejects_an_empty_domain_or_a_limit_below_one():
     with pytest.raises(ValueError, match="no rows in domain 'sports'"):
-        dataclasses.replace(TEXT_TASK, domain="sports").load()
+        dataclasses.replace(NEWS, domain="sports").load()
+    with pytest.raises(ValueError, match="no rows in domain 'news'"):
+        dataclasses.replace(TEXT_TASK, domain="news").load()
     with pytest.raises(ValueError, match="limit must be at least 1"):
         TEXT_TASK.load(limit=0)
+
+
+def test_load_refuses_to_pool_a_sources_domains():
+    with pytest.raises(ValueError, match="the rows have domains"):
+        dataclasses.replace(NEWS, domain=None).load()
 
 
 def test_window_below_one_raises():
@@ -154,5 +162,14 @@ def test_source_suite_names_a_task_per_domain():
 
 
 def test_toy_texts_span_several_windows(tokenizer):
-    lengths = [len(tokenizer.encode(row["text"])) for row in TEXT_ROWS]
+    lengths = [len(tokenizer.encode(row["text"], add_special_tokens=False)) for row in TEXT_ROWS]
     assert min(lengths) > TEXT_TASK.window
+
+
+def test_evaluate_checks_every_window_against_the_model_first(monkeypatch, lm, tokenizer):
+    short = ScoringModel(lm, tokenizer, name="tiny@0", max_length=4)
+    monkeypatch.setattr(ScoringModel, "from_pretrained", lambda *args, **kwargs: short)
+    monkeypatch.setitem(run.TASKS, TEXT_TASK.name, TEXT_TASK)
+    monkeypatch.setattr(run, "score_task", lambda *args: pytest.fail("scored before the check"))
+    with pytest.raises(ValueError, match="window 8 is above tiny@0's max_length 4"):
+        evaluate(EvalConfig(model="tiny@0", tasks=(TEXT_TASK.name,)))
