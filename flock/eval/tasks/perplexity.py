@@ -1,10 +1,12 @@
 """Perplexity tasks as data: a pinned dataset of plain texts, each scored whole."""
 
 import dataclasses
+import functools
 import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from flock.eval.tasks.base import Dataset
 
@@ -75,7 +77,7 @@ class PerplexityTask:
         if limit is not None and limit < 1:
             raise ValueError(f"limit must be at least 1, got {limit}")
 
-        rows = self.dataset.load()
+        rows = _split_rows(self.dataset)
         # A null `subdomain` counts as none: `datasets` fills a column a row lacks with None.
         if self.domain is None and any(row.get("subdomain") is not None for row in rows):
             raise ValueError(f"{self.name}: the rows have domains; give the task its domain")
@@ -93,3 +95,12 @@ class PerplexityTask:
             digest.update(json.dumps([doc.id, doc.text]).encode())
 
         return digest.hexdigest()
+
+
+# One split at a time: the domains of a source run one after another and share its split, which
+# takes about 2 seconds to load for the 100-domain sources, so loading it once per domain would
+# add minutes to a run. A bound of one keeps a training process from holding every source.
+@functools.lru_cache(maxsize=1)
+def _split_rows(dataset: Dataset) -> list[dict[str, Any]]:
+    """The scored split's rows, shared by every task on the same `Dataset`. Callers must not change them."""
+    return dataset.load()
