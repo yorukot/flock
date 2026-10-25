@@ -229,24 +229,33 @@ class ScoringModel:
         token_ids = self._tokenize(list(texts))
         prefix = self._prefix_token()
         windows: list[_Encoded] = []
-        text_of_window = []
+        # Each window's text, and its place among that text's windows.
+        text_index = []
+        window_index = []
         for i, (text, ids) in enumerate(zip(texts, token_ids, strict=True)):
             if not ids:
                 raise ValueError(f"text has no tokens: {text!r}")
             windows.append(([prefix], ids[:window]))
-            text_of_window.append(i)
-            for start in range(window, len(ids), window):
+            text_index.append(i)
+            window_index.append(0)
+            for n, start in enumerate(range(window, len(ids), window), start=1):
                 end = min(start + window, len(ids))
                 # The input is the `window` tokens before `end`, so a last window that predicts
                 # fewer than `window` tokens conditions on the rest of the previous one.
                 windows.append((ids[end - window - 1 : start], ids[start:end]))
-                text_of_window.append(i)
+                text_index.append(i)
+                window_index.append(n)
 
-        # float64, as OLMES adds windows up in Python floats: a long text sums to about 1e5 nats,
-        # which float32 resolves only to about 0.01.
-        logprob = torch.zeros(len(token_ids), dtype=torch.float64, device=self.device)
-        index = torch.tensor(text_of_window, dtype=torch.int64).to(self.device, non_blocking=True)
-        logprob.index_add_(0, index, self._logprobs(windows).double())
+        # One row of window scores per text, summed along the row: unlike `index_add_` on CUDA,
+        # which adds in any order, the sum is the same in every run. float64, as OLMES adds
+        # windows up in Python floats: a long text sums to about 1e5 nats, which float32
+        # resolves only to about 0.01.
+        width = max(window_index, default=0) + 1
+        by_window = torch.zeros(len(token_ids), width, dtype=torch.float64, device=self.device)
+        rows = torch.tensor(text_index, dtype=torch.int64).to(self.device, non_blocking=True)
+        columns = torch.tensor(window_index, dtype=torch.int64).to(self.device, non_blocking=True)
+        by_window[rows, columns] = self._logprobs(windows).double()
+        logprob = by_window.sum(-1)
 
         num_tokens = torch.tensor([len(ids) for ids in token_ids], dtype=torch.int64)
         return Scores(
