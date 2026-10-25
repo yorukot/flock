@@ -137,6 +137,7 @@ def test_evaluate_scores_perplexity_tasks_and_their_source(monkeypatch, scorer, 
 def test_paloma_is_registered_as_sources_of_domain_tasks():
     assert SUITES["paloma"] == PALOMA
     assert [suite.name for suite in PALOMA.members] == ["paloma:wikitext_103"]
+    assert [suite.metric for suite in PALOMA.members] == ["bits_per_byte"]
     wikitext = TASKS["paloma_wikitext_103"]
     assert isinstance(wikitext, PerplexityTask)
     assert (wikitext.dataset.subset, wikitext.dataset.split) == ("wikitext_103", "test")

@@ -26,12 +26,14 @@ def source_suite(source: str, domains: tuple[str, ...]) -> Suite:
         split="test",
     )
     if not domains:
-        return Suite(f"paloma:{source}", (PerplexityTask(f"paloma_{source}", dataset),))
+        tasks = (PerplexityTask(f"paloma_{source}", dataset),)
+    else:
+        tasks = tuple(
+            PerplexityTask(f"paloma_{source}__{domain}", dataset, domain=domain)
+            for domain in domains
+        )
 
-    tasks = tuple(
-        PerplexityTask(f"paloma_{source}__{domain}", dataset, domain=domain) for domain in domains
-    )
-    return Suite(f"paloma:{source}", tasks)
+    return Suite(f"paloma:{source}", tasks, metric="bits_per_byte")
 
 
 # One name runs every source. There is no score over all sources: Paloma defines none.

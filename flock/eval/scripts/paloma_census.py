@@ -12,18 +12,31 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from huggingface_hub import HfApi, hf_hub_download
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-REPO = "allenai/paloma"
-REVISION = "65cd6fc59dba021b21db414fa5e8d7765ffbe5e6"
+from flock.eval.tasks import PerplexityTask
+from flock.eval.tasks.paloma import PALOMA
+
+# Every Paloma task scores the same revision with the same window, so the first stands for all,
+# and the census counts what the tasks score.
+TASK = PALOMA.tasks[0]
+assert isinstance(TASK, PerplexityTask)
+REPO = TASK.dataset.repo
+REVISION = TASK.dataset.revision
+WINDOW = TASK.window
 TOKENIZER = ("allenai/OLMo-2-0425-1B", "a1847dff35000b4271fa70afc5db10fd29fedbdf")
-WINDOW = 2048
 
 
-def count_source(tokenizer, files: list[str]) -> dict:
-    """Counts one source's split from its `.jsonl.gz` files, overall and per domain."""
+def count_source(tokenizer: PreTrainedTokenizerBase, files: list[str]) -> dict[str, Any]:
+    """
+    Counts one source's split from its `.jsonl.gz` files, overall and per domain.
+
+    Raises:
+        `ValueError`: if some rows have a `subdomain` and others don't, since `DOMAINS` can't list the rows without one.
+    """
     totals: Counter[str] = Counter()
     domain_docs: Counter[str] = Counter()
     domain_tokens: Counter[str] = Counter()
@@ -54,6 +67,9 @@ def count_source(tokenizer, files: list[str]) -> dict:
             # Rounded up: the last window holds what is left.
             totals["windows"] += max(1, -(-length // WINDOW))
 
+    if "" in domain_docs and len(domain_docs) > 1:
+        raise ValueError(f"{files[0]}: some rows have a subdomain and some don't")
+
     return {
         **totals,
         "domains": len(domain_docs),
@@ -68,6 +84,7 @@ def main(split: str, out: Path) -> None:
     """Writes the census of `split` to `out` as JSON and prints each source's domains."""
     repo, revision = TOKENIZER
     tokenizer = AutoTokenizer.from_pretrained(repo, revision=revision)
+    assert tokenizer is not None  # The stubs allow None; loading raises instead.
     files = HfApi().list_repo_files(REPO, repo_type="dataset", revision=REVISION)
 
     # Files are `<source>/<split>/<name>.jsonl.gz`.
