@@ -5,7 +5,7 @@ from transformers import LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerFast
 
 from flock.eval.model import ScoringModel
 from flock.eval.tasks import Dataset
-from flock.eval.tasks.perplexity import _split_rows
+from flock.eval.tasks.perplexity import _docs_by_domain
 
 from .toy import ROWS
 
@@ -68,4 +68,4 @@ def offline_rows(monkeypatch):
     monkeypatch.setattr(Dataset, "load", lambda self, split=None: ROWS[split or self.split])
     # Perplexity tasks keep the last split they loaded. Cleared so a test that patches
     # `Dataset.load` again never reads another test's rows.
-    _split_rows.cache_clear()
+    _docs_by_domain.cache_clear()

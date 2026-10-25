@@ -6,7 +6,6 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
 
 from flock.eval.tasks.base import Dataset
 
@@ -77,16 +76,13 @@ class PerplexityTask:
         if limit is not None and limit < 1:
             raise ValueError(f"limit must be at least 1, got {limit}")
 
-        rows = _split_rows(self.dataset)
-        # A null `subdomain` counts as none: `datasets` fills a column a row lacks with None.
-        if self.domain is None and any(row.get("subdomain") is not None for row in rows):
+        docs_by_domain = _docs_by_domain(self.dataset)
+        if self.domain is None and set(docs_by_domain) != {None}:
             raise ValueError(f"{self.name}: the rows have domains; give the task its domain")
-        if self.domain is not None:
-            rows = [row for row in rows if row.get("subdomain") == self.domain]
-        if not rows:
+        if self.domain not in docs_by_domain:
             raise ValueError(f"{self.name}: no rows in domain {self.domain!r}")
 
-        return [TextDoc(row["id"], row["text"]) for row in rows[:limit]]
+        return list(docs_by_domain[self.domain][:limit])
 
     def task_hash(self, docs: Sequence[TextDoc]) -> str:
         """Returns the sha256 of the definition and every doc's id and text, as [Results files](results#the-task-hash) defines it."""
@@ -99,8 +95,14 @@ class PerplexityTask:
 
 # One split at a time: the domains of a source run one after another and share its split, which
 # takes about 2 seconds to load for the 100-domain sources, so loading it once per domain would
-# add minutes to a run. A bound of one keeps a training process from holding every source.
+# add about 10 minutes to a run. A bound of one keeps a training process from holding every
+# source.
 @functools.lru_cache(maxsize=1)
-def _split_rows(dataset: Dataset) -> list[dict[str, Any]]:
-    """The scored split's rows, shared by every task on the same `Dataset`. Callers must not change them."""
-    return dataset.load()
+def _docs_by_domain(dataset: Dataset) -> dict[str | None, tuple[TextDoc, ...]]:
+    """The scored split's docs grouped by `subdomain`, in row order, under `None` for rows without one. Tuples of frozen docs, so tasks sharing the split can't change each other's docs."""
+    grouped: dict[str | None, list[TextDoc]] = {}
+    for row in dataset.load():
+        # A null `subdomain` counts as none: `datasets` fills a column a row lacks with None.
+        grouped.setdefault(row.get("subdomain"), []).append(TextDoc(row["id"], row["text"]))
+
+    return {domain: tuple(docs) for domain, docs in grouped.items()}
