@@ -7,9 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from flock.eval.metrics import ChoiceScores
 from flock.eval.provenance import Provenance
+from flock.eval.requests import Scores
 from flock.eval.tasks.base import MCDoc, Truncation
+from flock.eval.tasks.perplexity import TextDoc
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +29,7 @@ class TaskResult:
         primary_metric (`str`):
             The metric to read first.
         metrics (`dict[str, float]`):
-            Each metric's mean over docs.
+            Each metric over the task's docs: a mean over docs for multiple choice, and a ratio of sums over all docs for `bits_per_byte`.
         num_docs (`int`):
             How many docs were scored.
         limit (`int`, *optional*):
@@ -110,12 +114,12 @@ class Results:
         return path
 
 
-def write_predictions(path: Path, docs: Sequence[MCDoc], scores: ChoiceScores) -> None:
-    """Writes `prediction_rows` to `path` as JSON lines, creating its directory if needed."""
+def write_predictions(path: Path, rows: Sequence[dict[str, Any]]) -> None:
+    """Writes prediction rows to `path` as JSON lines, creating its directory if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with path.open("w") as f:
-        for row in prediction_rows(docs, scores):
+        for row in rows:
             f.write(json.dumps(row) + "\n")
 
 
@@ -138,5 +142,30 @@ def prediction_rows(docs: Sequence[MCDoc], scores: ChoiceScores) -> list[dict[st
         if logprob_uncond is not None:
             row["logprob_uncond"] = logprob_uncond[i][:count]
         rows.append(row)
+
+    return rows
+
+
+def perplexity_prediction_rows(
+    docs: Sequence[TextDoc], scores: Scores, num_bytes: torch.Tensor, window: int
+) -> list[dict[str, Any]]:
+    """Returns one row per doc with its id, summed log-probability, token and UTF-8 byte counts and number of windows, so any domain's `bits_per_byte` can be recomputed."""
+    # One host copy per field, not per doc.
+    logprob = scores.logprob.tolist()
+    num_tokens = scores.num_tokens.tolist()
+    doc_bytes = num_bytes.tolist()
+
+    rows = []
+    for i, doc in enumerate(docs):
+        rows.append(
+            {
+                "id": doc.id,
+                "logprob": logprob[i],
+                "num_tokens": num_tokens[i],
+                "num_bytes": doc_bytes[i],
+                # Rounded up: the last window holds what is left.
+                "windows": -(-num_tokens[i] // window),
+            }
+        )
 
     return rows

@@ -10,8 +10,9 @@ from flock.eval.tasks.base import (
     Truncation,
     cloze,
 )
+from flock.eval.tasks.perplexity import PerplexityTask, TextDoc
 from flock.eval.tasks.registry import SUITES, TASKS
-from flock.eval.tasks.suite import Suite
+from flock.eval.tasks.suite import Suite, Task
 
 __all__ = [
     "SUITES",
@@ -22,7 +23,10 @@ __all__ = [
     "MCDoc",
     "MCRequests",
     "MultipleChoiceTask",
+    "PerplexityTask",
     "Suite",
+    "Task",
+    "TextDoc",
     "Truncation",
     "cloze",
 ]

@@ -68,10 +68,12 @@ def test_score_needs_every_member_tasks_metric():
             "gold doesn't report acc_raw",
             id="metric",
         ),
-        pytest.param({"members": (TASK, GOLD_ONLY)}, "mix accuracies and bpb", id="mixed-tasks"),
+        pytest.param(
+            {"members": (TASK, GOLD_ONLY)}, r"mix \['accuracy', 'bpb'\]", id="mixed-tasks"
+        ),
         pytest.param(
             {"members": (TASK, Suite("inner", (OTHER,), metric="bpb"))},
-            "mix accuracies and bpb",
+            r"mix \['accuracy', 'bpb'\]",
             id="mixed-suites",
         ),
         pytest.param(

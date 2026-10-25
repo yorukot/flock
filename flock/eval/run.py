@@ -7,11 +7,18 @@ from pathlib import Path
 
 import torch
 
-from flock.eval.metrics import multiple_choice
+from flock.eval.metrics import bits_per_byte, multiple_choice
 from flock.eval.model import DEFAULT_BATCH_TOKENS, ScoringModel
 from flock.eval.provenance import Provenance
-from flock.eval.results import Results, SuiteResult, TaskResult, write_predictions
-from flock.eval.tasks import SUITES, TASKS, MultipleChoiceTask, Suite
+from flock.eval.results import (
+    Results,
+    SuiteResult,
+    TaskResult,
+    perplexity_prediction_rows,
+    prediction_rows,
+    write_predictions,
+)
+from flock.eval.tasks import SUITES, TASKS, PerplexityTask, Suite, Task, Truncation
 from flock.eval.tasks.suite import by_name
 
 
@@ -119,7 +126,7 @@ def _check_names(kind: str, names: tuple[str, ...], registry: Mapping[str, objec
         raise KeyError(f"unknown {kind} {unknown}; known: {sorted(registry)}")
 
 
-def _tasks_to_run(names: tuple[str, ...], suites: list[Suite]) -> list[MultipleChoiceTask]:
+def _tasks_to_run(names: tuple[str, ...], suites: list[Suite]) -> list[Task]:
     """Returns the named tasks, then each suite's tasks not yet listed, each name once."""
     tasks = [TASKS[name] for name in names]
     for suite in suites:
@@ -152,7 +159,7 @@ def _check_out(out: Path | None) -> None:
 
 
 def score_task(
-    model: ScoringModel, task: MultipleChoiceTask, limit: int | None = None, out: Path | None = None
+    model: ScoringModel, task: Task, limit: int | None = None, out: Path | None = None
 ) -> TaskResult:
     """
     Scores one task with an already loaded model, as training loops do between steps.
@@ -160,13 +167,16 @@ def score_task(
     Args:
         model (`ScoringModel`):
             The model to score.
-        task (`MultipleChoiceTask`):
+        task (`MultipleChoiceTask` or `PerplexityTask`):
             The task.
         limit (`int`, *optional*):
             Score only the first `limit` docs.
         out (`Path`, *optional*):
             Write per-doc scores to `out/predictions/<task>.jsonl`, replacing an existing file. No `results.json` is written: that is [`evaluate`]'s job.
     """
+    if isinstance(task, PerplexityTask):
+        return _score_perplexity(model, task, limit, out)
+
     docs, shots = task.load(limit)
     prepared = task.requests(docs, shots)
 
@@ -184,7 +194,8 @@ def score_task(
     truncation = prepared.truncation(request_scores)
 
     if out is not None:
-        write_predictions(out / "predictions" / f"{task.name}.jsonl", prepared.docs, scores)
+        rows = prediction_rows(prepared.docs, scores)
+        write_predictions(out / "predictions" / f"{task.name}.jsonl", rows)
 
     return TaskResult(
         task=task.name,
@@ -195,4 +206,40 @@ def score_task(
         limit=limit,
         seconds=seconds,
         truncation=truncation,
+    )
+
+
+def _score_perplexity(
+    model: ScoringModel, task: PerplexityTask, limit: int | None, out: Path | None
+) -> TaskResult:
+    """[`score_task`] for a perplexity task."""
+    docs = task.load(limit)
+    texts = [doc.text for doc in docs]
+    # Each whole text's UTF-8 bytes, as OLMES's `num_bytes` (`loglikelihood_rolling_verbose` in
+    # `oe_eval/models/eleuther_huggingface.py`).
+    num_bytes = torch.tensor([len(text.encode()) for text in texts], dtype=torch.int64)
+
+    start = time.perf_counter()
+    scores = model.rolling_loglikelihood(texts, task.window)
+    # Summed over all of the task's docs before dividing, as Paloma defines bits per byte
+    # (App. B) and OLMES computes it per domain (`PerplexityMetric`), so a doc counts by its
+    # bytes. `.item()` is the task's one host copy, and it waits for the GPU, so `seconds`
+    # times the scoring.
+    metric = bits_per_byte(scores.logprob.sum(), num_bytes.sum()).item()
+    seconds = time.perf_counter() - start
+
+    if out is not None:
+        rows = perplexity_prediction_rows(docs, scores, num_bytes, task.window)
+        write_predictions(out / "predictions" / f"{task.name}.jsonl", rows)
+
+    return TaskResult(
+        task=task.name,
+        task_hash=task.task_hash(docs),
+        primary_metric=task.primary_metric,
+        metrics={"bits_per_byte": metric},
+        num_docs=len(docs),
+        limit=limit,
+        seconds=seconds,
+        # Every token is predicted once, in windows that fit the model, so nothing is cut.
+        truncation=Truncation(requests=0, docs=0, max_tokens_cut=0),
     )

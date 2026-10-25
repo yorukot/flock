@@ -1,6 +1,6 @@
-"""Toy dataset rows and a toy task in ARC's row format, read by every eval test instead of a download."""
+"""Toy dataset rows and toy tasks in ARC's and Paloma's row formats, read by every eval test instead of a download."""
 
-from flock.eval.tasks import Dataset, Fewshot, MultipleChoiceTask
+from flock.eval.tasks import Dataset, Fewshot, MultipleChoiceTask, PerplexityTask
 from flock.eval.tasks.arc import arc_doc
 
 ROWS = {
@@ -32,6 +32,12 @@ ROWS = {
             "answerKey": "2",
         },
     ],
+    # Paloma's row format. Longer than one window of `TEXT_TASK`, with multi-byte UTF-8.
+    "text": [
+        {"id": "t-1", "subdomain": "news", "text": "The quick brown fox jumps over the lazy dog."},
+        {"id": "t-2", "subdomain": "exam", "text": "臺灣最高的山是哪一座？答案：玉山 🏔"},
+        {"id": "t-3", "subdomain": "news", "text": "繁體中文的評估。 The lazy dog sleeps."},
+    ],
 }
 
 TASK = MultipleChoiceTask(
@@ -40,4 +46,8 @@ TASK = MultipleChoiceTask(
     to_doc=arc_doc,
     primary_metric="acc_per_char",
     fewshot=Fewshot("train", ("shot-2", "shot-1")),
+)
+
+TEXT_TASK = PerplexityTask(
+    name="toy_text", dataset=Dataset("cerulean/toy", "0" * 40, None, "text"), window=8
 )
