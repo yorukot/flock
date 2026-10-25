@@ -10,7 +10,7 @@ from flock.eval.run import EvalConfig, evaluate, score_task
 from flock.eval.tasks import SUITES, TASKS, PerplexityTask, Suite
 from flock.eval.tasks.paloma import PALOMA, source_suite
 
-from .toy import ROWS, TASK, TEXT_TASK
+from .toy import TASK, TEXT_ROWS, TEXT_TASK
 
 NEWS = dataclasses.replace(TEXT_TASK, name="toy_text__news", domain="news")
 EXAM = dataclasses.replace(TEXT_TASK, name="toy_text__exam", domain="exam")
@@ -21,7 +21,7 @@ def test_load_keeps_the_domains_rows_in_order():
     assert [doc.id for doc in TEXT_TASK.load()] == ["t-1", "t-2", "t-3"]
     assert [doc.id for doc in NEWS.load()] == ["t-1", "t-3"]
     assert [doc.id for doc in NEWS.load(limit=1)] == ["t-1"]
-    assert NEWS.load()[1].text == ROWS["text"][2]["text"]
+    assert NEWS.load()[1].text == TEXT_ROWS[2]["text"]
 
 
 def test_load_rejects_an_empty_domain_or_a_limit_below_one():
@@ -49,7 +49,7 @@ def test_task_hash_covers_the_definition_and_every_text():
 
 
 def test_bits_per_byte_is_a_ratio_of_sums_over_utf8_bytes(scorer):
-    texts = [row["text"] for row in ROWS["text"]]
+    texts = [row["text"] for row in TEXT_ROWS]
     scores = scorer.rolling_loglikelihood(texts, TEXT_TASK.window)
     logprob = scores.logprob.tolist()
     num_bytes = [len(text.encode()) for text in texts]
@@ -80,7 +80,7 @@ def test_score_task_writes_one_prediction_row_per_doc(scorer, tmp_path):
     lines = (tmp_path / "predictions" / "toy_text.jsonl").read_text().splitlines()
     rows = [json.loads(line) for line in lines]
     assert [row["id"] for row in rows] == ["t-1", "t-2", "t-3"]
-    for row, source in zip(rows, ROWS["text"], strict=True):
+    for row, source in zip(rows, TEXT_ROWS, strict=True):
         ids = scorer.tokenizer.encode(source["text"], add_special_tokens=False)
         assert row["num_tokens"] == len(ids)
         assert row["num_bytes"] == len(source["text"].encode())
@@ -115,7 +115,7 @@ GOLD_ONLY = dataclasses.replace(TASK, name="gold", metrics=("bpb",), primary_met
 )
 def test_suite_rejects_perplexity_tasks_beside_other_scales(kwargs, match):
     with pytest.raises(ValueError, match=match):
-        Suite(**{"name": "mixed", **kwargs})
+        Suite("mixed", **kwargs)
 
 
 def test_evaluate_scores_perplexity_tasks_and_their_source(monkeypatch, scorer, tmp_path):
@@ -148,9 +148,10 @@ def test_source_suite_names_a_task_per_domain():
     assert suite.name == "paloma:c4_100_domains"
     names = [task.name for task in suite.tasks]
     assert names == ["paloma_c4_100_domains__00_a.org", "paloma_c4_100_domains__01_b.com"]
-    assert [task.domain for task in suite.tasks] == ["00_a.org", "01_b.com"]
+    domains = [task.domain for task in suite.tasks if isinstance(task, PerplexityTask)]
+    assert domains == ["00_a.org", "01_b.com"]
 
 
 def test_toy_texts_span_several_windows(tokenizer):
-    lengths = [len(tokenizer.encode(row["text"])) for row in ROWS["text"]]
+    lengths = [len(tokenizer.encode(row["text"])) for row in TEXT_ROWS]
     assert min(lengths) > TEXT_TASK.window

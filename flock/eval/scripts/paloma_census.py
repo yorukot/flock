@@ -1,0 +1,91 @@
+"""Counts the docs, domains, bytes, tokens and windows of every Paloma source in one split, and prints the domain list `flock/eval/tasks/paloma.py` freezes.
+
+Run from the repository root, after accepting the dataset's terms on the Hugging Face Hub:
+
+    uv run python flock/eval/scripts/paloma_census.py test paloma-census-test.json
+
+It reads the raw files at the pinned revision, not `datasets`, so the counts don't depend on a `datasets` version, and it loads only a tokenizer, never model weights.
+"""
+
+import gzip
+import json
+import sys
+from collections import Counter
+from pathlib import Path
+
+from huggingface_hub import HfApi, hf_hub_download
+from transformers import AutoTokenizer
+
+REPO = "allenai/paloma"
+REVISION = "65cd6fc59dba021b21db414fa5e8d7765ffbe5e6"
+TOKENIZER = ("allenai/OLMo-2-0425-1B", "a1847dff35000b4271fa70afc5db10fd29fedbdf")
+WINDOW = 2048
+
+
+def count_source(tokenizer, files: list[str]) -> dict:
+    """Counts one source's split from its `.jsonl.gz` files, overall and per domain."""
+    totals: Counter[str] = Counter()
+    domain_docs: Counter[str] = Counter()
+    domain_tokens: Counter[str] = Counter()
+    doc_ids = []
+    empty_files = []
+    for file in files:
+        path = hf_hub_download(REPO, file, repo_type="dataset", revision=REVISION)
+        with gzip.open(path, "rt") as f:
+            rows = [json.loads(line) for line in f]
+        if not rows:
+            empty_files.append(file)
+            continue
+
+        # No special tokens, as `ScoringModel` tokenizes.
+        encoded = tokenizer([row["text"] for row in rows], add_special_tokens=False)
+        lengths = [len(token_ids) for token_ids in encoded["input_ids"]]
+        for row, length in zip(rows, lengths, strict=True):
+            # A source with one domain has no `subdomain` field. Its domain is "".
+            domain = row.get("subdomain", "")
+            doc_ids.append(row["id"])
+            domain_docs[domain] += 1
+            domain_tokens[domain] += length
+            totals["docs"] += 1
+            totals["bytes"] += len(row["text"].encode())
+            totals["tokens"] += length
+            totals["empty_texts"] += length == 0
+            totals[f"over_{WINDOW}"] += length > WINDOW
+            # Rounded up: the last window holds what is left.
+            totals["windows"] += max(1, -(-length // WINDOW))
+
+    return {
+        **totals,
+        "domains": len(domain_docs),
+        "repeated_ids": len(doc_ids) - len(set(doc_ids)),
+        "empty_files": empty_files,
+        "domain_docs": dict(sorted(domain_docs.items())),
+        "domain_tokens": dict(sorted(domain_tokens.items())),
+    }
+
+
+def main(split: str, out: Path) -> None:
+    """Writes the census of `split` to `out` as JSON and prints each source's domains."""
+    repo, revision = TOKENIZER
+    tokenizer = AutoTokenizer.from_pretrained(repo, revision=revision)
+    files = HfApi().list_repo_files(REPO, repo_type="dataset", revision=REVISION)
+
+    # Files are `<source>/<split>/<name>.jsonl.gz`.
+    sources: dict[str, list[str]] = {}
+    for file in sorted(files):
+        parts = file.split("/")
+        if len(parts) == 3 and parts[1] == split:
+            sources.setdefault(parts[0], []).append(file)
+
+    census = {}
+    for source, source_files in sources.items():
+        census[source] = count_source(tokenizer, source_files)
+        domains = [domain for domain in census[source]["domain_docs"] if domain]
+        print(f"{source!r}: {tuple(domains)!r},")
+
+    header = {"revision": REVISION, "split": split, "tokenizer": "@".join(TOKENIZER)}
+    out.write_text(json.dumps({**header, "sources": census}, indent=1) + "\n")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1], Path(sys.argv[2]))

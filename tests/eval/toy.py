@@ -3,6 +3,14 @@
 from flock.eval.tasks import Dataset, Fewshot, MultipleChoiceTask, PerplexityTask
 from flock.eval.tasks.arc import arc_doc
 
+# Paloma's row format, as the split "text". Longer than one window of `TEXT_TASK`, with
+# multi-byte UTF-8.
+TEXT_ROWS = [
+    {"id": "t-1", "subdomain": "news", "text": "The quick brown fox jumps over the lazy dog."},
+    {"id": "t-2", "subdomain": "exam", "text": "臺灣最高的山是哪一座？答案：玉山 🏔"},
+    {"id": "t-3", "subdomain": "news", "text": "繁體中文的評估。 The lazy dog sleeps."},
+]
+
 ROWS = {
     "train": [
         {
@@ -32,12 +40,7 @@ ROWS = {
             "answerKey": "2",
         },
     ],
-    # Paloma's row format. Longer than one window of `TEXT_TASK`, with multi-byte UTF-8.
-    "text": [
-        {"id": "t-1", "subdomain": "news", "text": "The quick brown fox jumps over the lazy dog."},
-        {"id": "t-2", "subdomain": "exam", "text": "臺灣最高的山是哪一座？答案：玉山 🏔"},
-        {"id": "t-3", "subdomain": "news", "text": "繁體中文的評估。 The lazy dog sleeps."},
-    ],
+    "text": TEXT_ROWS,
 }
 
 TASK = MultipleChoiceTask(
