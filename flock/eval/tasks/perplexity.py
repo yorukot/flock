@@ -81,6 +81,8 @@ class PerplexityTask:
         docs_by_domain = _docs_by_domain(self.dataset)
         if self.domain is None and docs_by_domain.keys() - {None}:
             raise ValueError(f"{self.name}: the rows have domains; give the task its domain")
+        if not docs_by_domain:
+            raise ValueError(f"{self.name}: the split has no rows")
         if self.domain not in docs_by_domain:
             raise ValueError(f"{self.name}: no rows in domain {self.domain!r}")
 
@@ -104,7 +106,9 @@ def _docs_by_domain(dataset: Dataset) -> dict[str | None, tuple[TextDoc, ...]]:
     """The scored split's docs grouped by `subdomain`, in row order, under `None` for rows without one. Tuples of frozen docs, so tasks sharing the split can't change each other's docs."""
     grouped: dict[str | None, list[TextDoc]] = {}
     for row in dataset.load():
-        # A null `subdomain` counts as none: `datasets` fills a column a row lacks with None.
-        grouped.setdefault(row.get("subdomain"), []).append(TextDoc(row["id"], row["text"]))
+        # A null or empty `subdomain` counts as none, as the census reads it: `datasets` fills a
+        # column a row lacks with None.
+        domain = row.get("subdomain") or None
+        grouped.setdefault(domain, []).append(TextDoc(row["id"], row["text"]))
 
     return {domain: tuple(docs) for domain, docs in grouped.items()}

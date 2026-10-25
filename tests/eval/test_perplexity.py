@@ -221,5 +221,5 @@ def test_the_cache_reloads_when_another_split_comes_between(monkeypatch):
 
 def test_an_empty_split_has_no_rows_to_score(monkeypatch):
     monkeypatch.setattr(Dataset, "load", lambda self, split=None: [])
-    with pytest.raises(ValueError, match="no rows in domain None"):
+    with pytest.raises(ValueError, match="the split has no rows"):
         TEXT_TASK.load()
