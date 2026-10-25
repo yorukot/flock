@@ -7,7 +7,7 @@ import pytest
 from flock.eval import run
 from flock.eval.model import ScoringModel
 from flock.eval.run import EvalConfig, evaluate, score_task
-from flock.eval.tasks import SUITES, TASKS, PerplexityTask, Suite
+from flock.eval.tasks import SUITES, TASKS, Dataset, PerplexityTask, Suite
 from flock.eval.tasks.paloma import PALOMA, source_suite
 
 from .toy import TASK, TEXT_ROWS, TEXT_TASK
@@ -173,3 +173,9 @@ def test_evaluate_checks_every_window_against_the_model_first(monkeypatch, lm, t
     monkeypatch.setattr(run, "score_task", lambda *args: pytest.fail("scored before the check"))
     with pytest.raises(ValueError, match="window 8 is above tiny@0's max_length 4"):
         evaluate(EvalConfig(model="tiny@0", tasks=(TEXT_TASK.name,)))
+
+
+def test_a_null_subdomain_counts_as_one_domain(monkeypatch):
+    rows = [{**row, "subdomain": None} for row in TEXT_ROWS]
+    monkeypatch.setattr(Dataset, "load", lambda self, split=None: rows)
+    assert len(TEXT_TASK.load()) == 3

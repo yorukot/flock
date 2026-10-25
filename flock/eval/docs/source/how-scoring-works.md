@@ -19,7 +19,7 @@ A [`~eval.tasks.PerplexityTask`] scores each doc's text whole with [`~eval.model
 
 1. The text is tokenized with no special tokens.
 2. It is split into windows of at most the task's `window` tokens, and every token is predicted exactly once. The first window predicts the first `window` tokens after one prefix token: BOS, or EOS if the tokenizer has no BOS. Each later window predicts the next `window` tokens from an input of exactly `window` tokens. The last window predicts what is left, and its input reaches back into the previous window.
-3. The windows of all texts are batched together like requests, and each text's windows are summed in float64.
+3. The windows of all texts are batched together like requests, and each text's windows are summed in float64. Every position of a window is scored, so a batch of windows reaches the full `batch_tokens` times the vocabulary in logits. Lower `batch_tokens` if that doesn't fit beside a training run.
 
 The window belongs to the task, not the model, so every model sees the same context. A model whose `max_length` is below the window raises an error. Nothing is cut, so a perplexity task's truncation is always 0.
 

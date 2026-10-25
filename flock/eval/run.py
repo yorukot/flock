@@ -231,8 +231,9 @@ def _score_perplexity(
     scores = model.rolling_loglikelihood(texts, task.window)
     # Summed over all of the task's docs before dividing, as Paloma defines bits per byte
     # (App. B) and OLMES computes it per domain (`PerplexityMetric`), so a doc counts by its
-    # bytes. `.item()` waits for the GPU, so `seconds` times the scoring.
-    total_bytes = torch.tensor(sum(num_bytes), device=model.device)
+    # bytes. The byte count stays on the host, so `.item()` is the task's one wait for the GPU,
+    # and `seconds` times the scoring.
+    total_bytes = torch.tensor(sum(num_bytes))
     metric = bits_per_byte(scores.logprob.sum(), total_bytes).item()
     seconds = time.perf_counter() - start
 

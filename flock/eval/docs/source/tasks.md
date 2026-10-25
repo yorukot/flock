@@ -27,7 +27,7 @@ A suite's score is the unweighted mean of its members' scores, as OLMES's `macro
 | `base_easy:qa_rc` | `arc_easy` | each task's primary metric | `olmo3:base_easy:qa_rc` |
 | `base_easy:qa_bpb` | `arc_easy` | `bpb` | `olmo3:base_easy:qa_bpb` |
 | `base_easy` | `base_easy:qa_rc`, `base_easy:qa_bpb` | unscored | none |
-| `paloma:wikitext_103` | `paloma_wikitext_103` | `bits_per_byte` | `paloma_wikitext_103::paloma` |
+| `paloma:wikitext_103` | `paloma_wikitext_103` | `bits_per_byte` | none; OLMES's task `paloma_wikitext_103::paloma` |
 | `paloma` | `paloma:wikitext_103` | unscored | none |
 
 A Paloma source is a suite of its domains, scored as their unweighted mean, as the paper averages a source's domains. OLMES instead reports a source's bits per byte over all of its docs together, so a source with several domains differs from OLMES's number. `paloma` has no score, since Paloma defines none over all sources.

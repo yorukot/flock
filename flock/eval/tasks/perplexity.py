@@ -38,7 +38,7 @@ class PerplexityTask:
         dataset (`Dataset`):
             Where the scored rows come from.
         domain (`str`, *optional*):
-            Score only the rows whose `subdomain` is this. Every row if not set.
+            Score only the rows whose `subdomain` is this. Leave it unset only for a source with one domain, whose rows have no `subdomain`.
         window (`int`, *optional*, defaults to 2048):
             The most tokens in one model input. It is part of the task, not the model, so every model is scored with the same context. A model whose `max_length` is smaller raises.
 
@@ -76,7 +76,8 @@ class PerplexityTask:
             raise ValueError(f"limit must be at least 1, got {limit}")
 
         rows = self.dataset.load()
-        if self.domain is None and any("subdomain" in row for row in rows):
+        # A null `subdomain` counts as none: `datasets` fills a column a row lacks with None.
+        if self.domain is None and any(row.get("subdomain") is not None for row in rows):
             raise ValueError(f"{self.name}: the rows have domains; give the task its domain")
         if self.domain is not None:
             rows = [row for row in rows if row.get("subdomain") == self.domain]

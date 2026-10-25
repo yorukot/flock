@@ -200,7 +200,7 @@ All on CPU with the tiny random model, no downloads.
 - **Metric:** `bits_per_byte` on hand values is the summed ratio, not a mean of per-doc ratios.
 - **Suites:** a source's score is the mean of its domains; a suite mixing `bits_per_byte` and `bpb` raises.
 - **Raises:** empty text, a window above `max_length`, a window below 1.
-- **Domains:** `domain` keeps only its rows, and `None` keeps all.
+- **Domains:** `domain` keeps only its rows, and `None` keeps all of a source with one domain (the build also raises on `None` for rows that have domains, so they can't be pooled).
 
 ---
 
