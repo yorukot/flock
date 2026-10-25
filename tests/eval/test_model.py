@@ -244,3 +244,123 @@ def test_batched_rows_do_not_see_each_other(scorer, monkeypatch):
         own_tokens = torch.zeros_like(reaches)
         own_tokens[i] = attention_mask[i].bool()
         assert torch.equal(reaches, own_tokens)
+
+
+# Long enough for several windows of `WINDOW` tokens, with Chinese and an emoji for multi-byte
+# UTF-8.
+TEXTS = [
+    "The quick brown fox jumps over the lazy dog. 繁體中文的評估。 " * 2,
+    "Question: 臺灣最高的山是哪一座？\nAnswer: 玉山 🏔",
+    "fox",
+]
+
+
+def lm_eval_windows(token_list, prefix_token, max_seq_len):
+    """lm-evaluation-harness 0.4.3's `get_rolling_token_windows` with `context_len=1`, each window passed through `make_disjoint_window` (`lm_eval/utils.py`), copied as the reference."""
+    first_seq_len = min(max_seq_len, len(token_list))
+    windows = [([prefix_token] + token_list[: first_seq_len - 1], token_list[:first_seq_len])]
+    predicted = first_seq_len
+    while predicted < len(token_list):
+        window_pred_len = min(len(token_list) - predicted, max_seq_len)
+        window_end = predicted + window_pred_len
+        windows.append(
+            (
+                token_list[window_end - max_seq_len - 1 : window_end - 1],
+                token_list[window_end - window_pred_len : window_end],
+            )
+        )
+        predicted += window_pred_len
+
+    return [(a[: len(a) - (len(b) - 1)], b) for a, b in windows]
+
+
+def rolling_reference(scorer, text, window):
+    """A text's summed log-probability over lm-evaluation-harness's windows, one unbatched forward pass each."""
+    ids = scorer.tokenizer.encode(text, add_special_tokens=False)
+    total = 0.0
+    for context, continuation in lm_eval_windows(ids, scorer.tokenizer.eos_token_id, window):
+        window_ids = context + continuation
+        assert len(window_ids) - 1 <= window
+        with torch.no_grad():
+            logits = scorer.model(torch.tensor([window_ids[:-1]])).logits[0].float()
+        logprobs = logits.log_softmax(-1)
+        start = len(window_ids) - 1 - len(continuation)
+        total += sum(logprobs[start + i, t].item() for i, t in enumerate(continuation))
+
+    return total
+
+
+def text_lengths(scorer):
+    return [len(scorer.tokenizer.encode(text, add_special_tokens=False)) for text in TEXTS]
+
+
+def recorded_windows(scorer, monkeypatch, texts, window):
+    """The (context, continuation) windows `rolling_loglikelihood` scores, in order."""
+    windows = []
+
+    def record(encoded):
+        windows.extend(encoded)
+        return torch.zeros(len(encoded))
+
+    monkeypatch.setattr(scorer, "_logprobs", record)
+    scorer.rolling_loglikelihood(texts, window)
+
+    return windows
+
+
+@pytest.mark.parametrize("window", [1, 3, 7, 8, 9, 64])
+def test_rolling_windows_are_lm_eval_windows(scorer, monkeypatch, window):
+    expected = []
+    for text in TEXTS:
+        ids = scorer.tokenizer.encode(text, add_special_tokens=False)
+        text_windows = lm_eval_windows(ids, scorer.tokenizer.eos_token_id, window)
+        # Every token is predicted exactly once.
+        assert [t for _, continuation in text_windows for t in continuation] == ids
+        expected.extend(text_windows)
+
+    assert recorded_windows(scorer, monkeypatch, TEXTS, window) == expected
+
+
+@pytest.mark.parametrize("offset", [None, 3, 0, -1])
+def test_rolling_loglikelihood_matches_unbatched_windows(scorer, offset):
+    # The window is set from the longest text: a third of it (over two windows), or that text's
+    # length plus 3 (shorter), plus 0 (exactly one window), or minus 1 (one token longer).
+    longest = max(text_lengths(scorer))
+    window = longest // 3 if offset is None else longest + offset
+    scores = scorer.rolling_loglikelihood(TEXTS, window)
+
+    expected = torch.tensor(
+        [rolling_reference(scorer, text, window) for text in TEXTS], dtype=torch.float64
+    )
+    torch.testing.assert_close(scores.logprob, expected, atol=1e-4, rtol=1e-5)
+    assert scores.logprob.dtype == torch.float64
+    assert scores.num_tokens.tolist() == text_lengths(scorer)
+    assert scores.tokens_cut.tolist() == [0, 0, 0]
+
+
+@pytest.mark.parametrize("batch_tokens", [1, 40, 10_000])
+def test_rolling_loglikelihood_is_batch_size_and_order_invariant(scorer, batch_tokens):
+    window = max(text_lengths(scorer)) // 3
+    one_batch = scorer.rolling_loglikelihood(TEXTS, window).logprob
+    scorer.batch_tokens = batch_tokens
+    backward = scorer.rolling_loglikelihood(TEXTS[::-1], window).logprob
+    torch.testing.assert_close(backward, one_batch.flip(0), atol=1e-4, rtol=1e-5)
+
+
+def test_rolling_loglikelihood_starts_from_bos_when_there_is_one(lm, tokenizer, monkeypatch):
+    with_bos = copy.deepcopy(tokenizer)
+    with_bos.bos_token = "<|pad|>"
+    scorer = ScoringModel(lm, with_bos, name="tiny@0")
+    windows = recorded_windows(scorer, monkeypatch, ["fox"], 8)
+    assert windows == [([with_bos.bos_token_id], with_bos.encode("fox"))]
+
+
+@pytest.mark.parametrize("window", [0, 129])
+def test_rolling_loglikelihood_rejects_a_window_outside_max_length(scorer, window):
+    with pytest.raises(ValueError, match="window must be from 1 to max_length 128"):
+        scorer.rolling_loglikelihood(TEXTS, window)
+
+
+def test_rolling_loglikelihood_rejects_an_empty_text(scorer):
+    with pytest.raises(ValueError, match="text has no tokens"):
+        scorer.rolling_loglikelihood(["fox", ""], 8)

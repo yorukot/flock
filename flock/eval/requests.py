@@ -24,11 +24,11 @@ class Request:
 @dataclass(frozen=True, slots=True)
 class Scores:
     """
-    The model's answers to a list of requests, one per request, in request order, on the model's device.
+    The model's answers to a list of requests, one per request, in request order, on the model's device. [`~eval.model.ScoringModel.rolling_loglikelihood`] answers one per text, a text standing for the continuation.
 
     Args:
         logprob (`torch.Tensor`):
-            float32 `[len(requests)]`, the summed natural-log probability of each continuation's tokens.
+            float32 `[len(requests)]`, the summed natural-log probability of each continuation's tokens. float64 from `rolling_loglikelihood`, whose sums run over long texts.
         num_tokens (`torch.Tensor`):
             int64 `[len(requests)]`, the number of tokens each continuation was scored over.
         tokens_cut (`torch.Tensor`):

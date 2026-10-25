@@ -210,6 +210,51 @@ class ScoringModel:
             torch.tensor(tokens_cut, dtype=torch.int64).to(self.device, non_blocking=True),
         )
 
+    @torch.no_grad()  # As in `loglikelihood`.
+    def rolling_loglikelihood(self, texts: Sequence[str], window: int) -> Scores:
+        """
+        Scores each text whole, in disjoint windows of at most `window` tokens, as lm-evaluation-harness's `loglikelihood_rolling` does.
+
+        Each text is tokenized with no special tokens and split as `get_rolling_token_windows(..., context_len=1)` and `make_disjoint_window` split it (`lm_eval/utils.py` at lm-eval 0.4.3), which OLMES's Paloma tasks use (`loglikelihood_rolling_verbose` in `oe_eval/models/eleuther_huggingface.py`). The first window predicts the first `window` tokens after one prefix token: BOS if the tokenizer has one, else EOS, as lm-evaluation-harness's own `prefix_token_id` (OLMES always uses EOS). Each later window predicts the next `window` tokens, or what is left, from an input of exactly `window` tokens, so every token is predicted once. The windows of all texts are batched together as `loglikelihood` batches requests.
+
+        Returns:
+            `Scores`: per text, the float64 sum of its windows' log-probabilities, its token count, and `tokens_cut` all 0, since no token is cut.
+
+        Raises:
+            `ValueError`: if `window` is below 1 or above `max_length`, or a text has no tokens (it would score 0 bits over 0 bytes).
+        """
+        if not 1 <= window <= self.max_length:
+            raise ValueError(f"window must be from 1 to max_length {self.max_length}, got {window}")
+
+        token_ids = self._tokenize(list(texts))
+        prefix = self._prefix_token()
+        windows: list[_Encoded] = []
+        text_of_window = []
+        for i, (text, ids) in enumerate(zip(texts, token_ids, strict=True)):
+            if not ids:
+                raise ValueError(f"text has no tokens: {text!r}")
+            windows.append(([prefix], ids[:window]))
+            text_of_window.append(i)
+            for start in range(window, len(ids), window):
+                end = min(start + window, len(ids))
+                # The input is the `window` tokens before `end`, so a last window that predicts
+                # fewer than `window` tokens conditions on the rest of the previous one.
+                windows.append((ids[end - window - 1 : start], ids[start:end]))
+                text_of_window.append(i)
+
+        # float64, as OLMES adds windows up in Python floats: a long text sums to about 1e5 nats,
+        # which float32 resolves only to about 0.01.
+        logprob = torch.zeros(len(token_ids), dtype=torch.float64, device=self.device)
+        index = torch.tensor(text_of_window, dtype=torch.int64).to(self.device, non_blocking=True)
+        logprob.index_add_(0, index, self._logprobs(windows).double())
+
+        num_tokens = torch.tensor([len(ids) for ids in token_ids], dtype=torch.int64)
+        return Scores(
+            logprob,
+            num_tokens.to(self.device, non_blocking=True),
+            torch.zeros(len(token_ids), dtype=torch.int64, device=self.device),
+        )
+
     def _logprobs(self, encoded: list[_Encoded]) -> torch.Tensor:
         """Each encoded request's summed continuation log-probability, in order, as float32 on the model's device, scored longest first in batches of at most `batch_tokens` padded tokens."""
         input_lengths = [_input_length(pair, self.max_length) for pair in encoded]
@@ -269,9 +314,9 @@ class ScoringModel:
 
     def _prefix_token(self) -> int:
         """
-        The token an empty context becomes: BOS if the tokenizer has one, else EOS, as lm-evaluation-harness's `prefix_token_id`.
+        The token an empty context becomes, and a rolling text's first window starts from: BOS if the tokenizer has one, else EOS, as lm-evaluation-harness's `prefix_token_id`.
 
-        It isn't padding: the continuation's first token needs one real token to be predicted from.
+        It isn't padding: the first scored token needs one real token to be predicted from.
 
         Raises:
             `ValueError`: if the tokenizer has neither.
@@ -280,9 +325,7 @@ class ScoringModel:
         if prefix is None:
             prefix = self.tokenizer.eos_token_id
         if prefix is None:
-            raise ValueError(
-                "an empty context needs a BOS or EOS token, and the tokenizer has neither"
-            )
+            raise ValueError("scoring needs a BOS or EOS prefix token, and the tokenizer has neither")
 
         return prefix
 
