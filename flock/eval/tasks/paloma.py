@@ -15,7 +15,7 @@ def source_suite(source: str, domains: tuple[str, ...]) -> Suite:
     """
     Returns a Paloma source as a suite of one task per domain, scored as the unweighted mean of their `bits_per_byte`.
 
-    Paloma macro-averages a source's domains (sec. 4), averaging perplexity. The mean here is over bits per byte, the log of a per-byte perplexity, which has no precedent: it keeps one domain with a very high perplexity from dominating its source, and it is the scale every other suite averages on. A domain's task is named `paloma_<source>__<domain>`, the key OLMES gives the domain (`PerplexityMetric` in `oe_eval/metrics/perplexity.py`), and a source with one domain has the task `paloma_<source>`.
+    Paloma macro-averages a source's domains (sec. 4), averaging perplexity. The mean here is over bits per byte, the log of a per-byte perplexity, which has no precedent: it keeps one domain with a very high perplexity from dominating its source, and it is the scale every other suite averages on. A domain's task is named `paloma_<source>__<domain>`, the shape of OLMES's domain key (`PerplexityMetric` in `oe_eval/metrics/perplexity.py`) with the dataset configuration as `<source>`, and a source with one domain has the task `paloma_<source>`.
     """
     # The `test` split, as OLMES's `paloma_<source>::paloma` tasks score it
     # (`oe_eval/configs/tasks.py`).
