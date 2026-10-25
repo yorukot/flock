@@ -41,6 +41,8 @@ The file is a [`~eval.results.Results`]. Each entry of `tasks` is a [`~eval.resu
 
 `task_hash` is the sha256 of the task's definition (every field but `to_doc`, so its name and primary metric too), every scored context and continuation, and every gold index. Changing the dataset revision, the few-shot examples, the task's name, description, metrics or primary metric, or a choice's context or continuation or the gold index that `to_doc` returns changes it. Doc ids aren't hashed. Two results with the same hash scored the same requests under the same task definition.
 
+A perplexity task's hash covers its definition (name, dataset, domain and window) and every doc's id and text.
+
 ### Suites
 
 `suites` holds the suites the run was given and every suite they hold, each after its members, and is empty for a run of tasks only. Each entry lists its members by name, and every member has its own entry in `tasks` or `suites`, so you can recompute the score: the mean of each member task's `metric` (its `primary_metric` when `metric` is `null`) and each member suite's `score`. A suite that only groups others has a `null` score. A suite's members can grow between versions of `flock-eval`, so compare two suite scores only when their `members` match, every member task has the same `task_hash`, and neither run used a `limit`.
@@ -64,6 +66,16 @@ Each line of `predictions/<task>.jsonl` is one doc:
 | `logprob` | Each choice's summed log-probability. |
 | `num_tokens` | Each choice's token count. |
 | `logprob_uncond` | Each choice's log-probability after the unconditional context, for tasks that score pointwise mutual information (PMI). |
+
+A perplexity task's line has other fields, enough to recompute `bits_per_byte` over any set of docs:
+
+| Field | Meaning |
+|---|---|
+| `id` | The doc's id in the dataset. |
+| `logprob` | The text's summed log-probability over all of its windows. |
+| `num_tokens` | The text's token count. |
+| `num_bytes` | The text's UTF-8 byte count. |
+| `windows` | How many windows the text was scored in. |
 
 ## Classes
 

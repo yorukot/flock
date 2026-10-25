@@ -63,6 +63,10 @@ A task with another format writes its own choices in `to_doc`:
 
 A changed prompt is a different task, and its numbers don't compare with the old ones, so give it a new name.
 
+## A perplexity task
+
+A [`~eval.tasks.PerplexityTask`] needs no row function: it reads each row's `id` and `text`, and keeps the rows whose `subdomain` is its `domain`. A Paloma source is one line in `DOMAINS` in `flock/eval/tasks/paloma.py`, with the domains `flock/eval/scripts/paloma_census.py` prints for it. `source_suite` makes one task per domain and the source's suite, and `PALOMA` registers them.
+
 ## The task hash
 
 Each result records the task's [hash](results#the-task-hash), so results from before and after a change to the task never share one.

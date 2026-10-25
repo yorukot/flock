@@ -13,6 +13,18 @@ A request is a context and a continuation, and its score is the summed log-proba
 
 A continuation with no tokens raises an error, since scoring it as 0 would rank it above every real choice. So does a continuation longer than `max_length` on its own.
 
+## Scoring a whole text
+
+A [`~eval.tasks.PerplexityTask`] scores each doc's text whole with [`~eval.model.ScoringModel.rolling_loglikelihood`], as lm-evaluation-harness's `loglikelihood_rolling` does:
+
+1. The text is tokenized with no special tokens.
+2. It is split into windows of at most the task's `window` tokens, and every token is predicted exactly once. The first window predicts the first `window` tokens after one prefix token: BOS, or EOS if the tokenizer has no BOS. Each later window predicts the next `window` tokens from an input of exactly `window` tokens. The last window predicts what is left, and its input reaches back into the previous window.
+3. The windows of all texts are batched together like requests, and each text's windows are summed in float64.
+
+The window belongs to the task, not the model, so every model sees the same context. A model whose `max_length` is below the window raises an error. Nothing is cut, so a perplexity task's truncation is always 0.
+
+OLMES starts the first window from EOS, whatever the tokenizer. That is the same token as BOS for OLMo 2, but not for Llama 3.2.
+
 ## Batching and precision
 
 Requests are sorted longest first and packed into batches of at most `batch_tokens` padded tokens ([Command line](cli) gives the default). Rows are left-padded, so every continuation ends at the last position. The model then computes logits only for the continuation positions, never for the few-shot context, which keeps memory at about `batch_tokens` times the vocabulary size.

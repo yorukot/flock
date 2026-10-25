@@ -2,11 +2,11 @@
 
 | | |
 | --- | --- |
-| Status | design |
+| Status | PR 1 built (core and `wikitext_103`); PR 2 (the other 8 sources and the parity table) next |
 | Date | 2026-10-24 |
 | Builds on | [001](001-eval-core.md) (scoring, `bits_per_byte`), [003](003-base-easy.md) (`Suite`, D18) |
 | Keeps | 001's tokenization, batching and float32 log-softmax; 002's `truncation` field (always 0 here); D18's unweighted suite means |
-| Result | to be filled when built |
+| Result | PR 1: `paloma_wikitext_103` 0.7065 bits per byte in bfloat16 on OLMo 2 1B; float32 parity in section 7 |
 
 Decision numbers are provisional (`006.D1`, ...) and take the next free global numbers when the PR is opened.
 
@@ -100,7 +100,7 @@ Token counts are the paper's, with the GPT-NeoX-20B tokenizer, half of its val-p
 
 Each Paloma domain is one task, and each source is a `Suite` of its domains with `metric="bits_per_byte"`. D18 already gives a suite's score as the unweighted mean of its members and writes each suite to the `suites` section of `results.json`, so the paper's two levels need no new aggregation: domains are in `tasks`, sources in `suites`.
 
-- **Names.** A domain's task is `paloma_<source>__<subdomain>`, the key OLMES uses for the domain (`<source>__<subdomain>`), so parity maps one to one. A source with one domain has the task `paloma_<source>`. A source's suite is `paloma:<source>`. `paloma` is an unscored suite over the 9 sources, so one name runs them all.
+- **Names.** A domain's task is `paloma_<source>__<subdomain>`, with `<source>` the dataset configuration. A source with one domain has the task `paloma_<source>`. OLMES keys a domain the same way but with each row's `source` field (`PerplexityMetric`), which differs from the configuration in 5 of the 9 sources (`Dolma-v1_5`, `Dolma_Reddit`, `dolma-100-programing-languages`, `PTB`, `falcon-refinedweb/data`), so parity maps documents by id, not by name. A source's suite is `paloma:<source>`. `paloma` is an unscored suite over the 9 sources, so one name runs them all.
 - **No score over all sources.** The paper defines none (it gives "ordinary perplexity" over pooled tokens and per-source macro averages), and OLMES's `paloma::paloma` averages micro per-source numbers we don't report. A mean over sources can be added later, under its own name.
 - **Domains are data.** The domain names are frozen in the task module, read once from the pinned revision, and the tasks are generated from that list, as MMLU's 57 subjects are.
 - **Cost:** 309 entries in `tasks` for one `--suite paloma` run. That is the per-domain record the paper asks for. A compact CLI summary is a separate change.
@@ -136,7 +136,7 @@ def rolling_loglikelihood(self, texts: Sequence[str], window: int) -> Scores: ..
 - **Tokens.** Each text is tokenized whole, with no special tokens, as OLMES's `tok_encode` does for OLMo 2 (`add_bos_token` is false for it).
 - **Windows.** The windows are exactly lm-evaluation-harness's `get_rolling_token_windows(context_len=1)` followed by `make_disjoint_window` (section 2.2), with `max_seq_len=window`. Each window is a (context ids, continuation ids) pair, which is what `loglikelihood` scores after `_encode`, so windows go through the same `_batches` and `_score`. Sorting longest first and the token budget work across documents unchanged.
 - **The first window's prefix** is `_prefix_token`: BOS, else EOS (Harry, 2026-10-24). This follows the paper's `<BOS>document` and lm-evaluation-harness, and differs from OLMES only for tokenizers whose BOS and EOS differ. Parity can't see the difference, since OLMo 2's two are one token.
-- **Per document.** The windows' log-probabilities and token counts are summed per text with one `index_add_` on the device. `Scores` keeps its three fields, one entry per text. `tokens_cut` is all zeros, since every token is predicted once and nothing is cut, so the task's `truncation` is always 0.
+- **Per document.** The windows' log-probabilities are summed per text with one `index_add_` on the device, in float64 (Harry, 2026-10-25): a 100,000-token text sums to about 3e5 nats, which float32 resolves only to about 0.03, close to check 2's budget for `ptb` (49 windows, 0.049 nats). OLMES adds windows in Python floats. `Scores.logprob` is float64 from this method only. `Scores` keeps its three fields, one entry per text. `tokens_cut` is all zeros, since every token is predicted once and nothing is cut, so the task's `truncation` is always 0.
 - **The only change to the existing path** is moving the batching loop of `loglikelihood` into a private method both callers share. It is a move with no behaviour change, checked by comparing every multiple-choice score on the tiny model before and after on the CPU.
 - **Raises** if `window` is below 1 or above `max_length`, and if a text has no tokens, which would give 0 bits over 0 bytes (as D11 refuses an empty continuation).
 
@@ -175,7 +175,9 @@ The setup is D22's: OLMES from its own environment, `allenai/OLMo-2-0425-1B` at 
 2. **Float32: the implementation.** Every document's summed log-probability is within 1e-3 nats per window of OLMES's, and every domain's `bits_per_byte` is within 1e-5.
 3. **Bfloat16: what we report.** Every domain's `bits_per_byte`, and every source's mean, within a tolerance fixed before the full comparison.
 
-**Calibration first,** as D22 was fixed. `c4_en`, `wikitext_103` and `ptb` run on both sides in both dtypes (four dev jobs). The bfloat16 tolerance is the larger of the largest observed per-domain gap (rounded up to one significant figure) and our same-commit run-to-run noise on the same three tasks, with D22's 3e-4 as the ceiling. It is written here and frozen, and only then does the full first version run. A domain that passes checks 1 and 2 exactly and whose bfloat16 gap is no larger than OLMES's own bfloat16 drift from float32 is "fail (c), explained", and the parity table reports both sides' drift (D28's rule).
+**Calibration first,** as D22 was fixed. `c4_en`, `wikitext_103` and `ptb` run on both sides in both dtypes (four dev jobs). The bfloat16 tolerance is the larger of the largest observed per-domain gap (rounded up to one significant figure) and our same-commit run-to-run noise on the same three tasks, with D22's 3e-4 as the ceiling. It is written here and frozen, and only then does the full first version run.
+
+**The verdict rests on checks 1 and 2.** Check 3 is reported pass or fail for every domain, next to each side's bfloat16 drift from OLMES's float32 run, but a fail there doesn't keep a domain from being used. OLMES sums each window's bfloat16 log-probabilities in bfloat16 (`_loglikelihood_tokens_verbose` in `oe_eval/models/eleuther_huggingface.py`, the multiple-choice path), so its bfloat16 numbers are rounded values, while the two float32 runs share one answer. Our own bfloat16 drift from float32 is a domain's noise floor: a difference between two checkpoints smaller than it is not a result.
 
 ---
 
@@ -212,4 +214,26 @@ All on CPU with the tiny random model, no downloads.
 
 ## 7. How it was actually built
 
-To be written when the PRs are built.
+### PR 1: the core and `wikitext_103`
+
+- **`ScoringModel.rolling_loglikelihood`** (`model.py`) builds the windows in one loop over each text's ids: the first window is `([prefix], ids[:window])`, and each later window starting at `start` is `(ids[end - window - 1 : start], ids[start:end])`, which is what `make_disjoint_window` makes of `get_rolling_token_windows(context_len=1)`. A test compares the windows with a copy of lm-evaluation-harness's two functions for windows of 1 to 64 tokens. The windows go through `_logprobs`, the batching loop moved out of `loglikelihood` unchanged (every multiple-choice score, both task hashes and every output file are bit-for-bit equal before and after the move, on the tiny model on the CPU). Per-text sums are float64 (006.D3).
+- **`PerplexityTask`** and **`TextDoc`** (`tasks/perplexity.py`), as 006.D2. `load` raises when a domain has no rows, so a misspelt domain can't score 0 bits over 0 bytes. The hash is `task_hash(docs)`, over the definition and every doc's id and text.
+- **`score_task`** sends a perplexity task to `_score_perplexity` in `run.py`, which divides the summed log-probability by the summed bytes on the device and copies one number to the host. `truncation` is all zeros.
+- **Predictions.** `write_predictions(path, rows)` now takes rows, so one writer serves both kinds of task: `prediction_rows` for multiple choice and `perplexity_prediction_rows` for perplexity (`id`, `logprob`, `num_tokens`, `num_bytes`, `windows`). This and the `Task` alias below were approved as public-surface changes (Harry, 2026-10-25).
+- **`Suite`** takes `Task | Suite` members, where `Task = MultipleChoiceTask | PerplexityTask` (`tasks/suite.py`), and its scale check names three scales: `accuracy`, `bpb` and `bits_per_byte`.
+- **Paloma** (`tasks/paloma.py`): `DOMAINS` maps each source to its domains, and `source_suite` builds a source's tasks and suite. PR 1 lists `wikitext_103` only.
+- **The census** (`scripts/paloma_census.py`) reads the raw files at the pinned revision with OLMo 2's tokenizer, writes the counts of section 2.3, and prints each source's domains in `DOMAINS`'s format. Its output equals the design census in every count, for all 16 sources.
+- **Loading cost** of one split per domain (006.D2) is measured in PR 2, which adds the sources with 99 and 100 domains.
+
+**Checks on `allenai/OLMo-2-0425-1B` at `a1847dff`**, OLMES at batch size 1 and `max_length` 2048, both on `test` at `65cd6fc5`:
+
+| `paloma_wikitext_103` | flock | OLMES |
+| --- | --- | --- |
+| docs, windows | 61, 170 | 61, 170 |
+| check 1 (ids in order, texts, tokens, windows, bytes) | equal | |
+| float32 bits per byte | 0.7064185 | 0.7064184 |
+| check 2: most nats per window, bits per byte difference | 7.3e-4, 3.5e-8 (pass) | |
+| bfloat16 bits per byte | 0.7065046 | 0.7064772 |
+| bfloat16 drift from OLMES's float32 | 8.6e-5 | 5.9e-5 |
+
+The bfloat16 run took 5.2 seconds for 285,336 tokens on one H200. Check 3's tolerance is set by PR 2's calibration.

@@ -4,6 +4,10 @@ Every multiple-choice task reports the metrics of [OLMES](https://arxiv.org/abs/
 
 `bpb` doesn't depend on the tokenizer, which makes it the fairest comparison between models with different vocabularies. Lower is better.
 
+## Perplexity
+
+A [`~eval.tasks.PerplexityTask`] reports one metric, `bits_per_byte`: the summed log-probability of all of the task's docs, negated and divided by their total UTF-8 bytes, in base 2 (Paloma, App. B). It is a ratio of sums, not a mean over docs, so a long doc counts by its length. Multiple-choice `bpb` is a mean over docs, which is why the two have different names and never share a suite. Lower is better.
+
 ## Functions
 
 [[autodoc]] eval.metrics.multiple_choice
