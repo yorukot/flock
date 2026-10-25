@@ -54,8 +54,9 @@ def count_source(tokenizer: PreTrainedTokenizerBase, files: list[str]) -> dict[s
         encoded = tokenizer([row["text"] for row in rows], add_special_tokens=False)
         lengths = [len(token_ids) for token_ids in encoded["input_ids"]]
         for row, length in zip(rows, lengths, strict=True):
-            # A source with one domain has no `subdomain` field. Its domain is "".
-            domain = row.get("subdomain", "")
+            # A source with one domain has no `subdomain` field. Its domain is "", and a null
+            # `subdomain` counts as none, as `PerplexityTask.load` reads it.
+            domain = row.get("subdomain") or ""
             doc_ids.append(row["id"])
             domain_docs[domain] += 1
             domain_tokens[domain] += length
