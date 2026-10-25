@@ -201,6 +201,18 @@ class ScoringModel:
                 self.max_length,
             )
 
+        num_tokens = torch.tensor(
+            [len(continuation) for _, continuation in encoded], dtype=torch.int64
+        )
+        return Scores(
+            self._logprobs(encoded),
+            num_tokens.to(self.device, non_blocking=True),
+            torch.tensor(tokens_cut, dtype=torch.int64).to(self.device, non_blocking=True),
+        )
+
+    def _logprobs(self, encoded: list[_Encoded]) -> torch.Tensor:
+        """Each encoded request's summed continuation log-probability, in order, as float32 on the model's device, scored longest first in batches of at most `batch_tokens` padded tokens."""
+        input_lengths = [_input_length(pair, self.max_length) for pair in encoded]
         # Longest first, as lm-evaluation-harness sorts (`_collate` in `_loglikelihood_tokens`),
         # so the first request of each batch sets its padded width.
         order = sorted(range(len(encoded)), key=lambda i: -input_lengths[i])
@@ -213,14 +225,7 @@ class ScoringModel:
                 index = torch.tensor(batch).to(self.device, non_blocking=True)
                 logprob[index] = self._score([encoded[i] for i in batch])
 
-        num_tokens = torch.tensor(
-            [len(continuation) for _, continuation in encoded], dtype=torch.int64
-        )
-        return Scores(
-            logprob,
-            num_tokens.to(self.device, non_blocking=True),
-            torch.tensor(tokens_cut, dtype=torch.int64).to(self.device, non_blocking=True),
-        )
+        return logprob
 
     def _encode(self, requests: Sequence[Request]) -> list[_Encoded]:
         """[`encode`] for many requests, with one tokenizer call for the distinct contexts and one for the joined texts."""
