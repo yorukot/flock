@@ -70,13 +70,13 @@ The continuation is the first gold answer with no leading space, and the context
 
 ### 010.D3. One example, not five
 
-OLMo 3 shows SQuAD and DROP five examples. DRCD passages are long in tokens: OLMo 2's tokenizer reads 0.69 characters per token on DRCD's test requests (Qwen 2.5's reads 1.22), so each example costs about 416 tokens under OLMo 2 and 240 under Qwen. Rendered with the format above:
+OLMo 3 shows SQuAD and DROP five examples. DRCD passages are long in tokens: OLMo 2's tokenizer reads 0.69 characters per token on DRCD's test requests (Qwen 2.5's reads 1.22), so each example costs about 416 tokens under OLMo 2 and 240 under Qwen. Rendered with the format above, with the examples of [010.D4](#010d4-the-example-one-dev-question-from-an-article-test-doesnt-share) (the five-example row takes the same rule's first five articles):
 
 | Examples | OLMo 2, longest request | OLMo 2, requests over 2,048 tokens | Qwen 2.5, longest | Qwen 2.5, over 2,048 |
 | --- | --- | --- | --- | --- |
 | 0 | 1,489 | 0 | 881 | 0 |
 | 1 | 1,905 | 0 | 1,121 | 0 |
-| 5 | 3,941 | 3,493 | 2,205 | 105 |
+| 5 | 3,929 | 3,493 | 2,196 | 96 |
 
 The project's own checkpoints train at a 2,048-token context, as OLMo 1B's recipe does. With five examples, such a model would see every doc cut from the left, and how much is cut depends on its tokenizer, so two models in one comparison would read different prompts. With one example, every request fits in 2,048 tokens under both tokenizers, and the shot still fixes the format for a base model. This departs from OLMo 3's five. 002's truncation count reports any model whose tokenizer still overflows.
 
